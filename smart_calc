@@ -1,18 +1,111 @@
-# **Smart Calculator using UART in Embedded C**
+#include <lpc21xx.h>
+#include "header.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
 
-## **Introduction**
-A UART-based **Smart Calculator** for the **LPC21xx microcontroller** that processes arithmetic expressions with correct operator precedence using **Embedded C** in **Keil uVision**.
+#define MAX_LEN 50
 
-## **Features**
-✔️ Supports **+, -, *, /** operations  
-✔️ Handles complex expressions like **12+5*3-4/2**  
-✔️ Implements **infix-to-postfix conversion** and evaluation  
-✔️ UART-based input and output  
+// Function to define operator precedence
+int precedence(char op) {
+    if (op == '+' || op == '-') return 1;
+    if (op == '*' || op == '/') return 2;
+    return 0;
+}
 
-## **Setup & Usage**
-1. Load and compile in **Keil uVision**.
-2. Upload the HEX file via **Flash Magic**.
-3. Open a Serial Terminal (**9600 baud rate**).
-4. Enter an arithmetic expression via UART.
-5. View the result on the terminal.
+// Function to convert infix to postfix
+int infix_to_postfix(char *infix, char *postfix) {
+    char stack[MAX_LEN];
+    int top = -1, j = 0;
 
+    for (int i = 0; infix[i] != '\0'; i++) {
+        if (isdigit(infix[i])) {
+            while (isdigit(infix[i]))  
+                postfix[j++] = infix[i++];  
+            postfix[j++] = ' ';  // Add space between numbers
+            i--;
+        } 
+        else if (strchr("+-*/", infix[i])) {  // Operator handling
+            while (top >= 0 && precedence(stack[top]) >= precedence(infix[i])) 
+                postfix[j++] = stack[top--];
+            stack[++top] = infix[i];
+        }
+    }
+    while (top >= 0) 
+        postfix[j++] = stack[top--];
+
+    postfix[j] = '\0';
+    return j;
+}
+
+// Function to evaluate postfix expression
+int evaluate_postfix(char *postfix) {
+    int stack[MAX_LEN], top = -1, num = 0;
+
+    for (int i = 0; postfix[i] != '\0'; i++) {
+        if (isdigit(postfix[i])) {  // Handle numbers
+            num = 0;
+            while (isdigit(postfix[i]))  
+                num = num * 10 + (postfix[i++] - '0');
+            stack[++top] = num;
+        } 
+        else if (strchr("+-*/", postfix[i])) {  // Handle operators
+            int b = stack[top--], a = stack[top--];
+            switch (postfix[i]) {
+                case '+': stack[++top] = a + b; break;
+                case '-': stack[++top] = a - b; break;
+                case '*': stack[++top] = a * b; break;
+                case '/': stack[++top] = a / b; break;
+            }
+        }
+    }
+    return stack[top];  // Return the final result
+}
+
+char *uart_calc(char *expr) {
+    static char result[20];
+    char postfix[MAX_LEN];
+
+    // Step 1: Convert infix to postfix
+    infix_to_postfix(expr, postfix);
+
+    // Step 2: Evaluate the postfix expression
+    int res = evaluate_postfix(postfix);
+    
+    // Step 3: Return result as string
+    sprintf(result, "%d", res);
+    return result;
+}
+
+int main() {
+    unsigned int i = 0;
+    char expr[50], temp, result[20];
+    
+    uart_init(9600);  // Initialize UART at 9600 baud rate
+    
+    while (1) {
+        i = 0;
+        uart_tx_string("\r\nENTER EXPRESSION: ");
+        
+        // Step 1: Receive expression via UART
+        while (1) {
+            temp = uart_rx();  // Read a character
+            uart_tx(temp);  // Echo back
+            if (temp == '\r')  // End of input
+                break;
+            expr[i++] = temp;
+        }
+        expr[i] = '\0';  // Null-terminate the string
+
+        uart_tx_string("\r\n");
+
+        // Step 2: Get result by processing the expression
+        strcpy(result, uart_calc(expr));
+        
+        // Step 3: Send the result back via UART
+        uart_tx_string("\r\nRESULT: ");
+        uart_tx_string(result);
+        uart_tx_string("\r\n");
+    }
+}
